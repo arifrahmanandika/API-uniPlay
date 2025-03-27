@@ -335,49 +335,66 @@ app.get("/generate-code", async (req, res) => {
 app.get("/topup", async (req, res) => {
   console.log("Menerima Transaksi...");
   try {
-    const { kode, ID_TRX } = req.query;
-    let { user_id, server_id } = req.query;
-    if (transactionCache[ID_TRX])
-      return (
-        res.json(transactionCache[ID_TRX]),
-        console.log("ID_TRX ", ID_TRX, " sudah ada di cache")
-      );
+    const {
+      kode,
+      ID_TRX,
+      user_id: rawUserId,
+      server_id: rawServerId,
+    } = req.query;
 
-    if (kode.startsWith("MLBB")) {
-      server_id = user_id.slice(9);
-      user_id = user_id.slice(0, 9);
+    // Check if transaction already exists in cache
+    if (transactionCache[ID_TRX]) {
+      console.log("ID_TRX", ID_TRX, "sudah ada di cache");
+      return res.json(transactionCache[ID_TRX]);
     }
 
-    const { entitas_id, denom_id } = getEntitasAndDenom(kode);
-    if (!entitas_id || !denom_id)
-      return res.status(400).json({ error: "Kode tidak ditemukan" });
+    // Adjust user_id and server_id for specific game codes
+    let user_id = rawUserId;
+    let server_id = rawServerId;
+    if (kode.startsWith("MLBB")) {
+      server_id = rawUserId.slice(9);
+      user_id = rawUserId.slice(0, 9);
+    }
 
+    // Retrieve entity and denomination IDs
+    const { entitas_id, denom_id } = getEntitasAndDenom(kode);
+    if (!entitas_id || !denom_id) {
+      return res.status(400).json({ error: "Kode tidak ditemukan" });
+    }
+
+    // Process inquiry payment
     const inquiryResponse = await processInquiryPayment(
       entitas_id,
       denom_id,
       user_id,
       server_id
     );
-    if (inquiryResponse.status !== "200")
+
+    res.json(inquiryResponse);
+
+    if (inquiryResponse.status !== "200") {
       return res
         .status(400)
         .json({ error: "Inquiry payment failed", details: inquiryResponse });
+    }
 
+    // Confirm payment
     const confirmResponse = await processConfirmPayment(
       inquiryResponse.inquiry_id
     );
 
+    // Prepare response payload
     const saldo = await getSaldo();
-    const usernameGame = inquiryResponse?.inquiry_info.username;
-    const trxItem = confirmResponse?.order_info.trx_item;
-    const snGame = usernameGame + " / " + trxItem;
-
+    const usernameGame = inquiryResponse?.inquiry_info?.username || "Unknown";
+    const trxItem = confirmResponse?.order_info?.trx_item || "Unknown";
     const responsePayload = {
       ID_TRX,
       ...confirmResponse,
-      serialNumber: snGame,
+      serialNumber: `${usernameGame} / ${trxItem}`,
       saldo,
     };
+
+    // Cache the transaction and save to file
     transactionCache[ID_TRX] = responsePayload;
     saveCacheToFile();
 
