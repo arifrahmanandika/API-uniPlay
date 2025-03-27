@@ -370,7 +370,7 @@ app.get("/topup", async (req, res) => {
       server_id
     );
 
-    res.json(inquiryResponse);
+    console.log("Inquiry Response:", JSON.stringify(inquiryResponse, null, 2));
 
     if (inquiryResponse.status !== "200") {
       return res
