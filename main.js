@@ -13,14 +13,6 @@ const API_KEY = process.env.UNIPLAY_API_KEY;
 const API_URL = "https://api-reseller.uniplay.id/v1";
 const PINCODE = process.env.UNIPLAY_PINCODE;
 
-// Fungsi untuk membuat UPL-SIGNATURE dengan HMAC-SHA512
-function generateSignature(payload) {
-  return crypto
-    .createHmac("sha512", `${API_KEY}|${payload}`)
-    .update(payload)
-    .digest("hex");
-}
-
 // Fungsi untuk mengirim request ke UniPlay API
 async function sendRequest(endpoint, data, token = null) {
   const requestBody = JSON.stringify(data);
@@ -45,21 +37,35 @@ async function sendRequest(endpoint, data, token = null) {
   }
 }
 
+// Fungsi untuk membuat UPL-SIGNATURE dengan HMAC-SHA512
+function generateSignature(payload) {
+  return crypto
+    .createHmac("sha512", `${API_KEY}|${payload}`)
+    .update(payload)
+    .digest("hex");
+}
+
 // Fungsi untuk mendapatkan Access Token
 async function getAccessToken() {
   const timestamp = moment().format("YYYY-MM-DD HH:mm:ss");
   return sendRequest("access-token", { api_key: API_KEY, timestamp });
 }
 
-// Fungsi untuk mendapatkan saldo
+async function getSaldo() {
+  const access_token = (await getAccessToken()).access_token;
+  const saldoResponse = await sendRequest(
+    "inquiry-saldo",
+    { api_key: API_KEY, timestamp: moment().format("YYYY-MM-DD HH:mm:ss") },
+    access_token
+  );
+  return saldoResponse?.saldo || "Saldo tidak tersedia";
+}
 
 // Fungsi untuk menyimpan hasil inquiry DTU ke file JSON
 function saveToJSONFile(filename, data) {
   fs.writeFileSync(filename, JSON.stringify(data, null, 2));
 }
 
-// Fungsi untuk memodifikasi data inquiry-dtu
-// Fungsi untuk memodifikasi data inquiry-dtu
 // Fungsi untuk memodifikasi data inquiry-dtu dengan kode lebih pendek
 function modifyInquiryData(inputFile, outputFile) {
   try {
@@ -125,6 +131,70 @@ function modifyInquiryData(inputFile, outputFile) {
     console.error("Terjadi kesalahan:", error.message);
   }
 }
+
+function getEntitasAndDenom(kode) {
+  const data = JSON.parse(fs.readFileSync("generate-code.json", "utf8"));
+  for (const game of data.list_dtu) {
+    for (const denom of game.denom) {
+      if (denom.kode === kode)
+        return { entitas_id: game.id, denom_id: denom.id };
+    }
+  }
+  return { entitas_id: null, denom_id: null };
+}
+
+async function processInquiryPayment(entitas_id, denom_id, user_id, server_id) {
+  return await sendRequest(
+    "inquiry-payment",
+    {
+      api_key: API_KEY,
+      timestamp: moment().format("YYYY-MM-DD HH:mm:ss"),
+      entitas_id,
+      denom_id,
+      user_id,
+      server_id,
+    },
+    (
+      await getAccessToken()
+    ).access_token
+  );
+}
+
+async function processConfirmPayment(inquiry_id) {
+  return await sendRequest(
+    "confirm-payment",
+    {
+      api_key: API_KEY,
+      timestamp: moment().format("YYYY-MM-DD HH:mm:ss"),
+      inquiry_id,
+      pincode: PINCODE,
+    },
+    (
+      await getAccessToken()
+    ).access_token
+  );
+}
+/////////////////////////////////////////////////////////////////////////////////////////////
+
+// Simpan transaksi yang sudah diproses
+const cacheFile = "transactionCache.json";
+
+// Fungsi untuk menyimpan cache ke file JSON
+function saveCacheToFile() {
+  fs.writeFileSync(cacheFile, JSON.stringify(transactionCache, null, 2));
+}
+
+// Fungsi untuk memuat cache dari file JSON saat aplikasi dimulai
+function loadCacheFromFile() {
+  if (fs.existsSync(cacheFile)) {
+    return JSON.parse(fs.readFileSync(cacheFile, "utf8"));
+  }
+  return {};
+}
+// Inisialisasi transactionCache dari file JSON
+let transactionCache = loadCacheFromFile();
+
+/////////////////////////////////////////////////////////////////////////////////////////////
 
 // Endpoint inquiry saldo
 app.get("/inquiry-saldo", async (req, res) => {
@@ -258,81 +328,6 @@ app.get("/generate-code", async (req, res) => {
     res.status(500).send(`<h1>Error</h1><p>${error.message}</p>`);
   }
 });
-
-/////////////////////////////////////////////////////////////////////////////////////////////
-
-async function getSaldo() {
-  const access_token = (await getAccessToken()).access_token;
-  const saldoResponse = await sendRequest(
-    "inquiry-saldo",
-    { api_key: API_KEY, timestamp: moment().format("YYYY-MM-DD HH:mm:ss") },
-    access_token
-  );
-  return saldoResponse?.saldo || "Saldo tidak tersedia";
-}
-
-function getEntitasAndDenom(kode) {
-  const data = JSON.parse(fs.readFileSync("generate-code.json", "utf8"));
-  for (const game of data.list_dtu) {
-    for (const denom of game.denom) {
-      if (denom.kode === kode)
-        return { entitas_id: game.id, denom_id: denom.id };
-    }
-  }
-  return { entitas_id: null, denom_id: null };
-}
-
-async function processInquiryPayment(entitas_id, denom_id, user_id, server_id) {
-  return await sendRequest(
-    "inquiry-payment",
-    {
-      api_key: API_KEY,
-      timestamp: moment().format("YYYY-MM-DD HH:mm:ss"),
-      entitas_id,
-      denom_id,
-      user_id,
-      server_id,
-    },
-    (
-      await getAccessToken()
-    ).access_token
-  );
-}
-
-async function processConfirmPayment(inquiry_id) {
-  return await sendRequest(
-    "confirm-payment",
-    {
-      api_key: API_KEY,
-      timestamp: moment().format("YYYY-MM-DD HH:mm:ss"),
-      inquiry_id,
-      pincode: PINCODE,
-    },
-    (
-      await getAccessToken()
-    ).access_token
-  );
-}
-
-/////////////////////////////////////////////////////////////////////////////////////////////
-
-// Simpan transaksi yang sudah diproses
-const cacheFile = "transactionCache.json";
-
-// Fungsi untuk menyimpan cache ke file JSON
-function saveCacheToFile() {
-  fs.writeFileSync(cacheFile, JSON.stringify(transactionCache, null, 2));
-}
-
-// Fungsi untuk memuat cache dari file JSON saat aplikasi dimulai
-function loadCacheFromFile() {
-  if (fs.existsSync(cacheFile)) {
-    return JSON.parse(fs.readFileSync(cacheFile, "utf8"));
-  }
-  return {};
-}
-// Inisialisasi transactionCache dari file JSON
-let transactionCache = loadCacheFromFile();
 
 /////////////////////////////////////////////////////////////////////////////////////////////
 
