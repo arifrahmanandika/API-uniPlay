@@ -137,3 +137,5 @@ dist
 
 # my gitignore
 transactionCache.json
+inquiry-dtu.json
+generate-code.json
