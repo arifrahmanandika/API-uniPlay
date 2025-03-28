@@ -373,9 +373,7 @@ app.get("/topup", async (req, res) => {
     console.log("Inquiry Response:", JSON.stringify(inquiryResponse, null, 2));
 
     if (inquiryResponse.status !== "200") {
-      return res
-        .status(400)
-        .json({ error: "Inquiry payment failed", details: inquiryResponse });
+      return res.json({ ...inquiryResponse });
     }
 
     // Confirm payment
