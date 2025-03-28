@@ -373,7 +373,8 @@ app.get("/topup", async (req, res) => {
     console.log("Inquiry Response:", JSON.stringify(inquiryResponse, null, 2));
 
     if (inquiryResponse.status !== "200") {
-      return res.json({ ...inquiryResponse });
+      const saldo = await getSaldo();
+      return res.json({ ID_TRX, ...inquiryResponse, saldo: saldo });
     }
 
     // Confirm payment
